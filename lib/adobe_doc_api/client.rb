@@ -1,116 +1,139 @@
-require 'faraday'
-require 'faraday_middleware'
-require 'jwt'
-require 'openssl'
+require "faraday"
+require "faraday_middleware"
+require "jwt"
+require "openssl"
 
 module AdobeDocApi
   class Client
-    JWT_URL = 'https://ims-na1.adobelogin.com/ims/exchange/jwt/'.freeze
-    API_ENDPOINT_URL = 'https://cpf-ue1.adobe.io'.freeze
-    attr_reader :access_token, :output_ext, :output_format, :poll_url, :content_request
+    JWT_URL = "https://ims-na1.adobelogin.com/ims/exchange/jwt/".freeze
+    API_ENDPOINT_URL = "https://cpf-ue1.adobe.io".freeze
 
-    def initialize(private_key_path:, destination_path:)
-      @destination_path = destination_path
-      @output_ext = File.extname(destination_path)
-      @output_format = @output_ext =~ /docx/ ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/pdf'
+    attr_reader :access_token, :location_url, :raw_response, :client_id, :client_secret, :org_id, :tech_account_id
 
+    def initialize(private_key:, client_id: ENV["adobe_client_id"], client_secret: ENV["adobe_client_secret"], org_id: ENV["adobe_org_id"], tech_account_id: ENV["adobe_tech_account_id"], access_token: nil)
+      # TODO Need to validate if any params are missing and return error
+      @client_id = client_id
+      @client_secret = client_secret
+      @org_id = org_id
+      @tech_account_id = tech_account_id
+      @location_url = nil
+      @output_file_path = nil
+      @raw_response = nil
+      @access_token = access_token || get_access_token(private_key)
+    end
+
+    def get_access_token(private_key)
       jwt_payload = {
-        'iss' => ENV['adobe_org_id'],
-        'sub' => ENV['adobe_tech_account_id'],
-        'https://ims-na1.adobelogin.com/s/ent_documentcloud_sdk' => true,
-        'aud' => "https://ims-na1.adobelogin.com/c/#{ENV['adobe_client_id']}",
-        'exp' => (Time.now.utc + 500).to_i
+        "iss" => @org_id,
+        "sub" => @tech_account_id,
+        "https://ims-na1.adobelogin.com/s/ent_documentcloud_sdk" => true,
+        "aud" => "https://ims-na1.adobelogin.com/c/#{@client_id}",
+        "exp" => (Time.now.utc + 60).to_i
       }
 
-      rsa_private = OpenSSL::PKey::RSA.new File.read(private_key_path)
-      jwt_token = JWT.encode jwt_payload, rsa_private, 'RS256'
+      rsa_private = OpenSSL::PKey::RSA.new File.read(private_key)
+
+      jwt_token = JWT.encode jwt_payload, rsa_private, "RS256"
 
       connection = Faraday.new do |conn|
-        conn.response :json, content_type: 'application/json'
+        conn.response :json, content_type: "application/json"
       end
-
       response = connection.post JWT_URL do |req|
-        req.params['client_id'] = ENV['adobe_client_id']
-        req.params['client_secret'] = ENV['adobe_client_secret']
-        req.params['jwt_token'] = jwt_token
+        req.params["client_id"] = @client_id
+        req.params["client_secret"] = @client_secret
+        req.params["jwt_token"] = jwt_token
       end
 
-      @access_token = response.body['access_token']
+      return response.body["access_token"]
 
     end
 
-    def submit(json:, disclosure_file_path:)
-      @content_request = {
+    def submit(json:, template:, output:)
+      @output = output
+      output_format = /docx/.match?(File.extname(@output)) ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf"
+
+      content_request = {
         "cpf:engine": {
-          "repo:assetId": 'urn:aaid:cpf:Service-52d5db6097ed436ebb96f13a4c7bf8fb'
+          "repo:assetId": "urn:aaid:cpf:Service-52d5db6097ed436ebb96f13a4c7bf8fb"
         },
         "cpf:inputs": {
-          "documentIn": {
-            "dc:format": 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            "cpf:location": 'InputFile0'
+          documentIn: {
+            "dc:format": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "cpf:location": "InputFile0"
           },
-          "params": {
+          params: {
             "cpf:inline": {
-              "outputFormat": @output_ext.delete('.'),
-              "jsonDataForMerge": json
+              outputFormat: File.extname(@output).delete("."),
+              jsonDataForMerge: json
             }
           }
         },
         "cpf:outputs": {
-          "documentOut": {
-            "dc:format": @output_format.to_s,
-            "cpf:location": 'multipartLabel'
+          documentOut: {
+            "dc:format": output_format.to_s,
+            "cpf:location": "multipartLabel"
           }
         }
       }.to_json
 
       connection = Faraday.new API_ENDPOINT_URL do |conn|
-        conn.request :authorization, 'Bearer', @access_token
-        conn.headers['x-api-key'] = ENV['adobe_client_id']
+        conn.request :authorization, "Bearer", @access_token
+        conn.headers["x-api-key"] = @client_id
         conn.request :multipart
         conn.request :url_encoded
-        conn.response :json, content_type: 'application/json'
+        conn.response :json, content_type: "application/json"
       end
 
-      payload = {'contentAnalyzerRequests' => content_request}
-      payload[:InputFile0] = Faraday::FilePart.new(disclosure_file_path, 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
-      res = connection.post('/ops/:create', payload)
-      @poll_url = res.headers['location']
-      poll_for_file(@poll_url)
+      payload = {"contentAnalyzerRequests" => content_request}
+      payload[:InputFile0] = Faraday::FilePart.new(template, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+      res = connection.post("/ops/:create", payload)
+      status_code = res.body["cpf:status"]["status"].to_i
+      @location_url = res.headers["location"]
+      raise Error.new(status_code: status_code, msg: res.body["cpf:status"]) unless status_code == 202
+      poll_for_file(@location_url)
     end
 
+    private
+
     def poll_for_file(url)
-      poll = Faraday.new do |conn|
-        conn.request :authorization, 'Bearer', @access_token
-        conn.headers['x-api-key'] = ENV['adobe_client_id']
+      connection = Faraday.new do |conn|
+        conn.request :authorization, "Bearer", @access_token
+        conn.headers["x-api-key"] = @client_id
       end
       counter = 0
       loop do
         sleep(6)
-        poll_response = poll.get(url)
+        response = connection.get(url)
         counter += 1
-        if poll_response.body.include?('"cpf:status":{"completed":true,"type":"","status":200}')
-          write_to_file(poll_response)
-          break
+        if response.body.include?('"cpf:status":{"completed":true,"type":"","status":200}')
+          @raw_response = response
+          return write_to_file(response.body)
+        else
+          status = JSON.parse(response.body)["cpf:status"]
+          raise Error.new(status_code: status["status"], msg: status) if status["status"] != 202
         end
         break if counter > 10
-      rescue StandardError => e
-        # Here we can log if there is a failure from Adobe's response i.e. "Failed to complete"
+      rescue => e
+        # Raise other exceptions
         raise(e)
       end
     end
 
-    def write_to_file(response)
-      temp_file = Tempfile.new([Time.now.to_i.to_s, @output_ext])
-      temp_file.write response.body
-      temp_file.rewind
-      # Read in the raw response and remove the
-      my_array = IO.readlines(temp_file.path)
-      my_array.pop
-      array = my_array.drop(9)
-      arry = array.join('')
-      File.open(@destination_path, 'wb') { |f| f.write arry.chomp}
-      temp_file.close!
+    def write_to_file(response_body)
+      line_index = []
+      lines = response_body.split("\r\n")
+      lines.each_with_index do |line, i|
+        next if line.include?("--Boundary_") || line.match?(/^Content-(Type|Disposition):/) || line.empty? || JSON.parse(line.force_encoding("UTF-8").to_s)
+      rescue
+        line_index << i
+      end
+      if line_index.length == 1
+        File.open(@output, "wb") { |f| f.write lines.at(line_index[0])}
+        true
+      else
+        false
+      end
     end
+
   end
 end

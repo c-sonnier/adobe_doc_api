@@ -18,7 +18,8 @@ Or install it yourself as:
 
     $ gem install adobe_doc_api
 
-## Required ENV variables
+## Recommended ENV variables 
+*Client.new will fallback to use these variables if they are not passed in setup
 ```ruby
 ENV['adobe_org_id']
 ENV['adobe_tech_account_id']
@@ -30,22 +31,20 @@ ENV['adobe_client_secret']
 
 ```ruby
 key_path = "../full_path_to/private.key"
-doc_path = "../full_path_to/disclosure.docx"
-destination = "../full_path_to_output/output.docx"
+template_path = "../full_path_to/disclosure.docx"
+output_path = "../full_path_to_output/output.docx"
 json_data = { 'DocTag': 'Value', 'DocTag2': 'Value2'}
-client = AdobeDocApi::Client.new(private_key_path: key_path, destination_path: destination)
-client.submit(json: json_data, disclosure_file_path: doc_path)
+
+client = AdobeDocApi::Client.new(private_key: key_path)
+# Without ENV variables set
+# client = AdobeDocApi::Client.new(private_key: key_path, client_id: ENV['adobe_client_id'], client_secret: ENV['adobe_client_secret']org_id: ENV['adobe_org_id'], tech_account_id: ENV['adobe_tech_account_id'], access_token: nil)
+
+client.submit(json: json_data, template: template_path, output: output_path)
 ```
 
 ## Todo
-- [ ] Add multipart parsing to improve saving the file from the response
+- [x] Add multipart parsing to improve saving the file from the response
 - [ ] Add documentation
-
-## Development
-
-After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
-
-To install this gem onto your local machine, run `bundle exec rake install`. To release a new version, update the version number in `version.rb`, and then run `bundle exec rake release`, which will create a git tag for the version, push git commits and the created tag, and push the `.gem` file to [rubygems.org](https://rubygems.org).
 
 ## Contributing
 
