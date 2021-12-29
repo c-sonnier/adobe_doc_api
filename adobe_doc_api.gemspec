@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = 'Ruby interface for Adobe PDF Services API Document Generation'
   spec.description = spec.summary
-  spec.homepage = 'https://compnotice.com'
+  spec.homepage = 'https://github.com/c-sonnier/adobe_doc_api'
   spec.license = 'MIT'
   spec.required_ruby_version = '>= 2.6.0'
 
