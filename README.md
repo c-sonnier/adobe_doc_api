@@ -37,6 +37,10 @@ client = AdobeDocApi::Client.new(private_key_path: key_path, destination_path: d
 client.submit(json: json_data, disclosure_file_path: doc_path)
 ```
 
+## Todo
+- [ ] Add multipart parsing to improve saving the file from the response
+- [ ] Add documentation
+
 ## Development
 
 After checking out the repo, run `bin/setup` to install dependencies. Then, run `rake test` to run the tests. You can also run `bin/console` for an interactive prompt that will allow you to experiment.
@@ -45,7 +49,11 @@ To install this gem onto your local machine, run `bundle exec rake install`. To 
 
 ## Contributing
 
-Bug reports and pull requests are welcome on GitHub at https://github.com/c-sonnier/adobe_doc_api.
+1. Fork it
+2. Create your feature branch (`git checkout -b my-new-feature`)
+3. Commit your changes (`git commit -am 'Add some feature'`)
+4. Push to the branch (`git push origin my-new-feature`)
+5. Create new Pull Request
 
 ## License
 
