@@ -18,13 +18,16 @@ Or install it yourself as:
 
     $ gem install adobe_doc_api
 
-## Recommended ENV variables 
-*Client.new will fallback to use these variables if they are not passed in setup
+## Configuration 
+* Configuration can be overridden if you need by passing the values to AdobeDocApi::Client.new
 ```ruby
-ENV['adobe_org_id']
-ENV['adobe_tech_account_id']
-ENV['adobe_client_id']
-ENV['adobe_client_secret']
+AdobeDocApi.configure do |config|
+  config.client_id = nil
+  config.client_secret = nil
+  config.org_id = nil
+  config.tech_account_id = nil
+  config.private_key_path = nil
+end
 ```
 
 ## Usage
@@ -35,11 +38,13 @@ template_path = "../full_path_to/disclosure.docx"
 output_path = "../full_path_to_output/output.docx"
 json_data = { 'DocTag': 'Value', 'DocTag2': 'Value2'}
 
-client = AdobeDocApi::Client.new(private_key: key_path)
-# Without ENV variables set
+client = AdobeDocApi::Client.new
+
+# Without configuration you must pass these values
 # client = AdobeDocApi::Client.new(private_key: key_path, client_id: ENV['adobe_client_id'], client_secret: ENV['adobe_client_secret']org_id: ENV['adobe_org_id'], tech_account_id: ENV['adobe_tech_account_id'], access_token: nil)
 
 client.submit(json: json_data, template: template_path, output: output_path)
+# returns true or false if file was saved to output_path
 ```
 
 ## Todo

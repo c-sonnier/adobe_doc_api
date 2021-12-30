@@ -10,16 +10,17 @@ module AdobeDocApi
 
     attr_reader :access_token, :location_url, :raw_response, :client_id, :client_secret, :org_id, :tech_account_id
 
-    def initialize(private_key:, client_id: ENV["adobe_client_id"], client_secret: ENV["adobe_client_secret"], org_id: ENV["adobe_org_id"], tech_account_id: ENV["adobe_tech_account_id"], access_token: nil)
+    def initialize(private_key: nil, client_id: nil, client_secret: nil, org_id: nil, tech_account_id: nil, access_token: nil)
       # TODO Need to validate if any params are missing and return error
-      @client_id = client_id
-      @client_secret = client_secret
-      @org_id = org_id
-      @tech_account_id = tech_account_id
+      @client_id = client_id || AdobeDocApi.configuration.client_id
+      @client_secret = client_secret || AdobeDocApi.configuration.client_secret
+      @org_id = org_id || AdobeDocApi.configuration.org_id
+      @tech_account_id = tech_account_id || AdobeDocApi.configuration.tech_account_id
+      @private_key_path = private_key || AdobeDocApi.configuration.private_key_path
       @location_url = nil
       @output_file_path = nil
       @raw_response = nil
-      @access_token = access_token || get_access_token(private_key)
+      @access_token = access_token || get_access_token(@private_key_path)
     end
 
     def get_access_token(private_key)
@@ -45,7 +46,6 @@ module AdobeDocApi
       end
 
       return response.body["access_token"]
-
     end
 
     def submit(json:, template:, output:)
