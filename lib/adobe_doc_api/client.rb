@@ -127,12 +127,9 @@ module AdobeDocApi
       rescue
         line_index << i
       end
-      if line_index.length == 1
-        File.open(@output, "wb") { |f| f.write lines.at(line_index[0])}
-        true
-      else
-        false
-      end
+
+      return true if File.open(@output, "wb") { |f| f.write lines.map.with_index { |l, i| lines.at(i) if line_index.include?(i) }.compact.join("\r\n")}
+      false
     end
 
   end
