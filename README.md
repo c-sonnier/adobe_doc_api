@@ -1,6 +1,6 @@
 # AdobeDocApi
 
-This is still a work in progress. Use at your own risk.
+This is still a work in progress and breaking changes may be made, but I will do my best to update the README when features have been changed.
 
 ## Installation
 
@@ -18,35 +18,46 @@ Or install it yourself as:
 
     $ gem install adobe_doc_api
 
-## Configuration 
-* Configuration can be overridden if you need by passing the values to AdobeDocApi::Client.new
+## Configuration
 ```ruby
 AdobeDocApi.configure do |config|
-  config.client_id = nil
-  config.client_secret = nil
-  config.org_id = nil
-  config.tech_account_id = nil
-  config.private_key_path = nil
+    config.client_id = nil
+    config.client_secret = nil
+    config.org_id = nil
+    config.tech_account_id = nil
+    config.private_key_path = nil
 end
 ```
-
+### Recommended configuration if using Rails 6+
+```ruby
+AdobeDocApi.configure do |config|
+    config.client_id = Rails.application.credentials.dig(:adobe_doc, :client_id)
+    config.client_secret = Rails.application.credentials.dig(:adobe_doc, :client_secret)
+    config.org_id = Rails.application.credentials.dig(:adobe_doc, :org_id)
+    config.tech_account_id = Rails.application.credentials.dig(:adobe_doc, :tech_account_id)
+    config.private_key_path = Rails.application.credentials.dig(:adobe_doc, :private_key_path)
+end
+```
 ## Usage
 
 ```ruby
-key_path = "../full_path_to/private.key"
 template_path = "../full_path_to/disclosure.docx"
 output_path = "../full_path_to_output/output.docx"
 json_data = { 'DocTag': 'Value', 'DocTag2': 'Value2'}
 
 client = AdobeDocApi::Client.new
-
-# Without configuration you must pass these values
-# client = AdobeDocApi::Client.new(private_key: key_path, client_id: ENV['adobe_client_id'], client_secret: ENV['adobe_client_secret']org_id: ENV['adobe_org_id'], tech_account_id: ENV['adobe_tech_account_id'], access_token: nil)
-
 client.submit(json: json_data, template: template_path, output: output_path)
 # returns true or false if file was saved to output_path
 ```
-
+### Usage without configuration
+```ruby
+client = AdobeDocApi::Client.new(private_key: key_path, 
+                                 client_id: adobe_client_id, 
+                                 client_secret: adobe_client_secret, 
+                                 org_id: adobe_org_id, 
+                                 tech_account_id: adobe_tech_account_id, 
+                                 access_token: nil)
+```
 ## Todo
 - [x] Add multipart parsing to improve saving the file from the response
 - [ ] Add documentation
