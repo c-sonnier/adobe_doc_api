@@ -1,4 +1,6 @@
-## [Unreleased]
+## [0.2.0] - 2023-06-20
+- Updates to Adobe PDF Services API
+- Removed JWT token authentication
 
 ## [0.1.4] - 2021-12-30
 - Fix issue with parsing file boundary that included \r\n
