@@ -49,7 +49,7 @@ module AdobeDocApi
 
       response = connection.post "https://ims-na1.adobelogin.com/ims/token/v3" do |req|
         req.params["client_id"] = @client_id
-        req.body = "client_secret=p8e-KHU2dpvy7gICy3CK3VbElm-sKPY9_c3C&grant_type=client_credentials&scope=#{scopes}"
+        req.body = "client_secret=#{@client_secret}&grant_type=client_credentials&scope=#{scopes}"
       end
       return response.body["access_token"]
     end
