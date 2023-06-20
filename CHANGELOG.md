@@ -1,4 +1,4 @@
-## [0.2.0] - 2023-06-20
+## [0.2.1] - 2023-06-20
 - Updates to Adobe PDF Services API
 - Removed JWT token authentication
 
