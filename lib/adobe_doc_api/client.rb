@@ -24,78 +24,85 @@ module AdobeDocApi
     end
 
     def get_access_token(private_key)
-      jwt_payload = {
-        "iss" => @org_id,
-        "sub" => @tech_account_id,
-        "https://ims-na1.adobelogin.com/s/ent_documentcloud_sdk" => true,
-        "aud" => "https://ims-na1.adobelogin.com/c/#{@client_id}",
-        "exp" => (Time.now.utc + 60).to_i
-      }
-
-      rsa_private = OpenSSL::PKey::RSA.new File.read(private_key)
-
-      jwt_token = JWT.encode jwt_payload, rsa_private, "RS256"
-
+      # TODO: JWT token deprecated and will stop working Jan 1, 2024.
+      # jwt_payload = {
+      #   "iss" => @org_id,
+      #   "sub" => @tech_account_id,
+      #   "https://ims-na1.adobelogin.com/s/ent_documentcloud_sdk" => true,
+      #   "aud" => "https://ims-na1.adobelogin.com/c/#{@client_id}",
+      #   "exp" => (Time.now.utc + 60).to_i
+      # }
+      #
+      # rsa_private = OpenSSL::PKey::RSA.new File.read(private_key)
+      #
+      # jwt_token = JWT.encode jwt_payload, rsa_private, "RS256"
+      #
       connection = Faraday.new do |conn|
         conn.response :json, content_type: "application/json"
       end
-      response = connection.post JWT_URL do |req|
-        req.params["client_id"] = @client_id
-        req.params["client_secret"] = @client_secret
-        req.params["jwt_token"] = jwt_token
-      end
+      # response = connection.post JWT_URL do |req|
+      #   req.params["client_id"] = @client_id
+      #   req.params["client_secret"] = @client_secret
+      #   req.params["jwt_token"] = jwt_token
+      # end
+      scopes = "openid, DCAPI, AdobeID"
 
+      response = connection.post "https://ims-na1.adobelogin.com/ims/token/v3" do |req|
+        req.params["client_id"] = @client_id
+        req.body = "client_secret=p8e-KHU2dpvy7gICy3CK3VbElm-sKPY9_c3C&grant_type=client_credentials&scope=#{scopes}"
+      end
       return response.body["access_token"]
     end
 
-    def submit(json:, template:, output:)
-      @output = output
-      output_format = /docx/.match?(File.extname(@output)) ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf"
-
-      content_request = {
-        "cpf:engine": {
-          "repo:assetId": "urn:aaid:cpf:Service-52d5db6097ed436ebb96f13a4c7bf8fb"
-        },
-        "cpf:inputs": {
-          documentIn: {
-            "dc:format": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "cpf:location": "InputFile0"
-          },
-          params: {
-            "cpf:inline": {
-              outputFormat: File.extname(@output).delete("."),
-              jsonDataForMerge: json
-            }
-          }
-        },
-        "cpf:outputs": {
-          documentOut: {
-            "dc:format": output_format.to_s,
-            "cpf:location": "multipartLabel"
-          }
-        }
-      }.to_json
-
-      connection = Faraday.new API_ENDPOINT_URL do |conn|
+    def get_asset_id
+      # Create new asset ID to get upload pre-signed Uri
+      connection = Faraday.new do |conn|
         conn.request :authorization, "Bearer", @access_token
         conn.headers["x-api-key"] = @client_id
-        conn.request :multipart
-        conn.request :url_encoded
+        conn.headers["Content-Type"] = ""
         conn.response :json, content_type: "application/json"
       end
+      response = connection.post "https://pdf-services.adobe.io/assets" do |req|
+        req.body = {mediaType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}.to_json
+        req.headers["Content-Type"] = "application/json"
+      end
+      # Return pre-signed uploadUri and assedID
+      return response.body["assetID"], response.body["uploadUri"]
+    end
 
-      payload = {"contentAnalyzerRequests" => content_request}
-      payload[:InputFile0] = Faraday::FilePart.new(template, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-      res = connection.post("/ops/:create", payload)
-      status_code = res.body["cpf:status"]["status"].to_i
-      @location_url = res.headers["location"]
-      raise Error.new(status_code: status_code, msg: res.body["cpf:status"]) unless status_code == 202
-      poll_for_file(@location_url)
+    def submit(json:, template:, output:)
+      asset_id, upload_uri = get_asset_id
+
+      # Upload template to asset created earlier.
+      response = Faraday.put upload_uri do |req|
+        req.headers["Content-Type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        req.body = File.binread(template)
+      end
+      raise("Failed to upload template.") if response.status.to_i != 200
+
+      # Post JSON Data for Merge to documentGeneration
+      content_request = {
+        assetID: asset_id,
+        outputFormat: File.extname(output).delete("."),
+        jsonDataForMerge: json
+      }.to_json
+      payload = content_request
+      connection = Faraday.new do |conn|
+        conn.request :authorization, "Bearer", @access_token
+        conn.headers["x-api-key"] = @client_id
+      end
+      res = connection.post "https://pdf-services-ue1.adobe.io/operation/documentgeneration" do |req|
+        req.body = payload
+        req.headers["Content-Type"] = "application/json"
+      end
+      # TODO need to check status of response
+      # Begin polling for status of file
+      poll_for_file(res.headers["location"], output)
     end
 
     private
 
-    def poll_for_file(url)
+    def poll_for_file(url, output)
       connection = Faraday.new do |conn|
         conn.request :authorization, "Bearer", @access_token
         conn.headers["x-api-key"] = @client_id
@@ -105,11 +112,11 @@ module AdobeDocApi
         sleep(6)
         response = connection.get(url)
         counter += 1
-        if response.body.include?('"cpf:status":{"completed":true,"type":"","status":200}')
-          @raw_response = response
-          return write_to_file(response.body)
+        if JSON.parse(response.body)["status"] == "done"
+          file_response = Faraday.get JSON.parse(response.body)["asset"]["downloadUri"]
+          return true if File.open(output, "wb") { |f| f.write file_response.body}
         else
-          status = JSON.parse(response.body)["cpf:status"]
+          status = JSON.parse(response.body)["status"]
           raise Error.new(status_code: status["status"], msg: status) if status["status"] != 202
         end
         break if counter > 10
@@ -117,19 +124,6 @@ module AdobeDocApi
         # Raise other exceptions
         raise(e)
       end
-    end
-
-    def write_to_file(response_body)
-      line_index = []
-      lines = response_body.split("\r\n")
-      lines.each_with_index do |line, i|
-        next if line.include?("--Boundary_") || line.match?(/^Content-(Type|Disposition):/) || line.empty? || JSON.parse(line.force_encoding("UTF-8").to_s)
-      rescue
-        line_index << i
-      end
-
-      return true if File.open(@output, "wb") { |f| f.write lines.map.with_index { |l, i| lines.at(i) if line_index.include?(i) }.compact.join("\r\n")}
-      false
     end
 
   end
