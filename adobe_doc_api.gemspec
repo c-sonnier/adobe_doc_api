@@ -33,6 +33,4 @@ Gem::Specification.new do |spec|
 
   spec.add_dependency 'faraday', '~> 1.8'
   spec.add_dependency 'faraday_middleware', '~> 1.2'
-  spec.add_dependency 'jwt', '~> 2.3.0'
-  spec.add_dependency 'openssl', '~> 2.2.1'
 end
