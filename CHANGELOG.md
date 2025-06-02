@@ -1,3 +1,6 @@
+## [0.2.2] - 2024-04-28
+- Removed dependency on faraday_middleware
+
 ## [0.2.1] - 2023-06-20
 - Updates to Adobe PDF Services API
 - Removed JWT token authentication

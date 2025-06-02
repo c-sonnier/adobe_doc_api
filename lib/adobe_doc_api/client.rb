@@ -1,5 +1,5 @@
 require "faraday"
-require "faraday_middleware"
+require "json"
 require "jwt"
 require "openssl"
 
@@ -36,16 +36,13 @@ module AdobeDocApi
 
       jwt_token = JWT.encode jwt_payload, rsa_private, "RS256"
 
-      connection = Faraday.new do |conn|
-        conn.response :json, content_type: "application/json"
-      end
+      connection = Faraday.new
       response = connection.post JWT_URL do |req|
         req.params["client_id"] = @client_id
         req.params["client_secret"] = @client_secret
         req.params["jwt_token"] = jwt_token
       end
-
-      return response.body["access_token"]
+      return JSON.parse(response.body)["access_token"]
     end
 
     def submit(json:, template:, output:)
@@ -81,15 +78,15 @@ module AdobeDocApi
         conn.headers["x-api-key"] = @client_id
         conn.request :multipart
         conn.request :url_encoded
-        conn.response :json, content_type: "application/json"
       end
 
       payload = {"contentAnalyzerRequests" => content_request}
       payload[:InputFile0] = Faraday::FilePart.new(template, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
       res = connection.post("/ops/:create", payload)
-      status_code = res.body["cpf:status"]["status"].to_i
+      json_body = JSON.parse(res.body)
+      status_code = json_body["cpf:status"]["status"].to_i
       @location_url = res.headers["location"]
-      raise Error.new(status_code: status_code, msg: res.body["cpf:status"]) unless status_code == 202
+      raise Error.new(status_code: status_code, msg: json_body["cpf:status"]) unless status_code == 202
       poll_for_file(@location_url)
     end
 
