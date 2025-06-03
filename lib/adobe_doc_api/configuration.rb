@@ -1,13 +1,11 @@
 module AdobeDocApi
   class Configuration
-    attr_accessor :client_id, :client_secret, :org_id, :tech_account_id, :private_key_path
+    attr_accessor :client_id, :client_secret, :scopes
 
     def initialize
       @client_id = nil
-      @client_sercret = nil
-      @org_id = nil
-      @tech_account_id = nil
-      @private_key_path = nil
+      @client_secret = nil
+      @scopes = "openid, DCAPI, AdobeID"
     end
   end
 end

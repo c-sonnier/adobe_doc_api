@@ -32,7 +32,4 @@ Gem::Specification.new do |spec|
   spec.require_paths = ['lib']
 
   spec.add_dependency 'faraday', '~> 1.8'
-  spec.add_dependency 'jwt', '~> 2.3.0'
-  # Updated to allow the latest OpenSSL gem
-  spec.add_dependency 'openssl', '~> 3.1'
 end
