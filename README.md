@@ -23,9 +23,8 @@ Or install it yourself as:
 AdobeDocApi.configure do |config|
     config.client_id = nil
     config.client_secret = nil
-    config.org_id = nil
-    config.tech_account_id = nil
-    config.private_key_path = nil
+    # Optional: customize OAuth scopes if needed
+    config.scopes = "openid, DCAPI, AdobeID"
 end
 ```
 ### Recommended configuration if using Rails 6+
@@ -33,9 +32,7 @@ end
 AdobeDocApi.configure do |config|
     config.client_id = Rails.application.credentials.dig(:adobe_doc, :client_id)
     config.client_secret = Rails.application.credentials.dig(:adobe_doc, :client_secret)
-    config.org_id = Rails.application.credentials.dig(:adobe_doc, :org_id)
-    config.tech_account_id = Rails.application.credentials.dig(:adobe_doc, :tech_account_id)
-    config.private_key_path = Rails.application.credentials.dig(:adobe_doc, :private_key_path)
+    config.scopes = Rails.application.credentials.dig(:adobe_doc, :scopes)
 end
 ```
 ## Usage
@@ -51,11 +48,8 @@ client.submit(json: json_data, template: template_path, output: output_path)
 ```
 ### Usage without configuration
 ```ruby
-client = AdobeDocApi::Client.new(private_key: key_path, 
-                                 client_id: adobe_client_id, 
-                                 client_secret: adobe_client_secret, 
-                                 org_id: adobe_org_id, 
-                                 tech_account_id: adobe_tech_account_id, 
+client = AdobeDocApi::Client.new(client_id: adobe_client_id,
+                                 client_secret: adobe_client_secret,
                                  access_token: nil)
 ```
 ## Todo

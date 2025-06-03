@@ -1,48 +1,35 @@
 require "faraday"
 require "json"
-require "jwt"
-require "openssl"
 
 module AdobeDocApi
   class Client
-    JWT_URL = "https://ims-na1.adobelogin.com/ims/exchange/jwt/".freeze
+    TOKEN_URL = "https://ims-na1.adobelogin.com/ims/token/v3".freeze
     API_ENDPOINT_URL = "https://cpf-ue1.adobe.io".freeze
 
-    attr_reader :access_token, :location_url, :raw_response, :client_id, :client_secret, :org_id, :tech_account_id
+    attr_reader :access_token, :location_url, :raw_response, :client_id, :client_secret
 
-    def initialize(private_key: nil, client_id: nil, client_secret: nil, org_id: nil, tech_account_id: nil, access_token: nil)
+    def initialize(client_id: nil, client_secret: nil, access_token: nil)
       # TODO Need to validate if any params are missing and return error
       @client_id = client_id || AdobeDocApi.configuration.client_id
       @client_secret = client_secret || AdobeDocApi.configuration.client_secret
-      @org_id = org_id || AdobeDocApi.configuration.org_id
-      @tech_account_id = tech_account_id || AdobeDocApi.configuration.tech_account_id
-      @private_key_path = private_key || AdobeDocApi.configuration.private_key_path
       @location_url = nil
       @output_file_path = nil
       @raw_response = nil
-      @access_token = access_token || get_access_token(@private_key_path)
+      @access_token = access_token || get_access_token
     end
 
-    def get_access_token(private_key)
-      jwt_payload = {
-        "iss" => @org_id,
-        "sub" => @tech_account_id,
-        "https://ims-na1.adobelogin.com/s/ent_documentcloud_sdk" => true,
-        "aud" => "https://ims-na1.adobelogin.com/c/#{@client_id}",
-        "exp" => (Time.now.utc + 60).to_i
-      }
+    def get_access_token
+      scopes = "openid, DCAPI, AdobeID"
 
-      rsa_private = OpenSSL::PKey::RSA.new File.read(private_key)
-
-      jwt_token = JWT.encode jwt_payload, rsa_private, "RS256"
-
-      connection = Faraday.new
-      response = connection.post JWT_URL do |req|
-        req.params["client_id"] = @client_id
-        req.params["client_secret"] = @client_secret
-        req.params["jwt_token"] = jwt_token
+      connection = Faraday.new do |conn|
+        conn.response :json, content_type: "application/json"
       end
-      return JSON.parse(response.body)["access_token"]
+
+      response = connection.post TOKEN_URL do |req|
+        req.params["client_id"] = @client_id
+        req.body = "client_secret=#{@client_secret}&grant_type=client_credentials&scope=#{scopes}"
+      end
+      response.body["access_token"]
     end
 
     def submit(json:, template:, output:)
