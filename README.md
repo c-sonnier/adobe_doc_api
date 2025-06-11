@@ -49,12 +49,8 @@ client.submit(json: json_data, template: template_path, output: output_path)
 ```ruby
 client = AdobeDocApi::Client.new(client_id: adobe_client_id,
                                  client_secret: adobe_client_secret,
-                                 scopes: adobe_scopes,
-                                 access_token: nil)
+                                 scopes: adobe_scopes)
 ```
-## Todo
-- [x] Add multipart parsing to improve saving the file from the response
-- [ ] Add documentation
 
 ## Contributing
 
