@@ -1,136 +1,176 @@
-require "faraday"
-require "faraday_middleware"
-require "jwt"
-require "openssl"
+require "net/http"
+require "json"
 
 module AdobeDocApi
   class Client
-    JWT_URL = "https://ims-na1.adobelogin.com/ims/exchange/jwt/".freeze
-    API_ENDPOINT_URL = "https://cpf-ue1.adobe.io".freeze
+    OAUTH_URL = "https://ims-na1.adobelogin.com/ims/token/v3".freeze
+    API_ENDPOINT_URL = "https://pdf-services-ue1.adobe.io/operation/documentgeneration"
+    attr_reader :location_url, :raw_response, :client_id, :client_secret, :scopes
 
-    attr_reader :access_token, :location_url, :raw_response, :client_id, :client_secret, :org_id, :tech_account_id
-
-    def initialize(private_key: nil, client_id: nil, client_secret: nil, org_id: nil, tech_account_id: nil, access_token: nil)
-      # TODO Need to validate if any params are missing and return error
+    def initialize(client_id: nil, client_secret: nil, scopes: nil)
       @client_id = client_id || AdobeDocApi.configuration.client_id
       @client_secret = client_secret || AdobeDocApi.configuration.client_secret
-      @org_id = org_id || AdobeDocApi.configuration.org_id
-      @tech_account_id = tech_account_id || AdobeDocApi.configuration.tech_account_id
-      @private_key_path = private_key || AdobeDocApi.configuration.private_key_path
+      @scopes = scopes || AdobeDocApi.configuration.scopes
       @location_url = nil
       @output_file_path = nil
       @raw_response = nil
-      @access_token = access_token || get_access_token(@private_key_path)
-    end
-
-    def get_access_token(private_key)
-      jwt_payload = {
-        "iss" => @org_id,
-        "sub" => @tech_account_id,
-        "https://ims-na1.adobelogin.com/s/ent_documentcloud_sdk" => true,
-        "aud" => "https://ims-na1.adobelogin.com/c/#{@client_id}",
-        "exp" => (Time.now.utc + 60).to_i
-      }
-
-      rsa_private = OpenSSL::PKey::RSA.new File.read(private_key)
-
-      jwt_token = JWT.encode jwt_payload, rsa_private, "RS256"
-
-      connection = Faraday.new do |conn|
-        conn.response :json, content_type: "application/json"
-      end
-      response = connection.post JWT_URL do |req|
-        req.params["client_id"] = @client_id
-        req.params["client_secret"] = @client_secret
-        req.params["jwt_token"] = jwt_token
-      end
-
-      return response.body["access_token"]
+      @access_token = get_access_token
     end
 
     def submit(json:, template:, output:)
       @output = output
-      output_format = /docx/.match?(File.extname(@output)) ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document" : "application/pdf"
-
-      content_request = {
-        "cpf:engine": {
-          "repo:assetId": "urn:aaid:cpf:Service-52d5db6097ed436ebb96f13a4c7bf8fb"
-        },
-        "cpf:inputs": {
-          documentIn: {
-            "dc:format": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-            "cpf:location": "InputFile0"
-          },
-          params: {
-            "cpf:inline": {
-              outputFormat: File.extname(@output).delete("."),
-              jsonDataForMerge: json
-            }
-          }
-        },
-        "cpf:outputs": {
-          documentOut: {
-            "dc:format": output_format.to_s,
-            "cpf:location": "multipartLabel"
-          }
-        }
-      }.to_json
-
-      connection = Faraday.new API_ENDPOINT_URL do |conn|
-        conn.request :authorization, "Bearer", @access_token
-        conn.headers["x-api-key"] = @client_id
-        conn.request :multipart
-        conn.request :url_encoded
-        conn.response :json, content_type: "application/json"
-      end
-
-      payload = {"contentAnalyzerRequests" => content_request}
-      payload[:InputFile0] = Faraday::FilePart.new(template, "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-      res = connection.post("/ops/:create", payload)
-      status_code = res.body["cpf:status"]["status"].to_i
-      @location_url = res.headers["location"]
-      raise Error.new(status_code: status_code, msg: res.body["cpf:status"]) unless status_code == 202
-      poll_for_file(@location_url)
+      @asset_id, upload_uri = upload_presigned_uri
+      upload_asset(upload_uri, template: template)
+      document_generation(json: json)
     end
 
     private
 
-    def poll_for_file(url)
-      connection = Faraday.new do |conn|
-        conn.request :authorization, "Bearer", @access_token
-        conn.headers["x-api-key"] = @client_id
+    def get_access_token
+      url = URI(OAUTH_URL)
+      https = Net::HTTP.new(url.host, url.port)
+      https.use_ssl = true
+      request = Net::HTTP::Post.new(url)
+      request["Content-Type"] = "application/x-www-form-urlencoded"
+      request.body = "grant_type=client_credentials&client_id=#{@client_id}&client_secret=#{@client_secret}&scope=#{@scopes}"
+      response = https.request(request)
+      if response.code.to_i != 200
+        raise Error.new(status_code: response.code, msg: "Failed to get access token: #{response.body}")
+      else
+        puts "Access token retrieved successfully"
+        JSON.parse(response.body)["access_token"]
       end
-      counter = 0
+    end
+
+    def upload_presigned_uri
+
+      url = URI("https://pdf-services-ue1.adobe.io/assets")
+      https = Net::HTTP.new(url.host, url.port)
+      https.use_ssl = true
+      request = Net::HTTP::Post.new(url)
+      request["Content-Type"] = "application/json"
+      request["X-API-Key"] = @client_id
+      request["Authorization"] = "bearer #{@access_token}"
+      request.body ='{"mediaType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"}'
+      response = https.request(request)
+
+      if response.code.to_i != 200
+        raise Error.new(status_code: response.code, msg: "Failed to create asset: #{response.body}")
+      else
+        puts "Asset created successfully"
+        response_body = JSON.parse(response.body)
+        asset_id = response_body["assetID"]
+        upload_uri = response_body["uploadUri"]
+        return asset_id, upload_uri
+      end
+
+    end
+
+    def upload_asset(upload_uri, template:)
+
+      # Upload the template to the presigned URI
+      url = URI(upload_uri)
+      https = Net::HTTP.new(url.host, url.port)
+      https.use_ssl = true
+      request = Net::HTTP::Put.new(url)
+      request["Content-Type"] = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+      request.body = File.read(template)
+      response = https.request(request)
+      if response.code.to_i != 200
+        raise Error.new(status_code: response.code, msg: "Failed to upload template: #{response.body}")
+      else
+        puts "Template uploaded successfully"
+      end
+
+    end
+
+    def document_generation(json:)
+      # Document Generation
+      url = URI("https://pdf-services-ue1.adobe.io/operation/documentgeneration")
+      https = Net::HTTP.new(url.host, url.port)
+      https.use_ssl = true
+      request = Net::HTTP::Post.new(url)
+      request["Content-Type"] = "application/json"
+      request["X-API-Key"] = @client_id
+      request["Authorization"] = "Bearer #{@access_token}"
+
+      request.body = {"assetID": @asset_id,
+                      "outputFormat": "docx",
+                      "jsonDataForMerge": json
+      }.to_json
+
+      response = https.request(request)
+
+      if response.code.to_i != 201
+        raise Error.new(status_code: response.code, msg: "Failed to submit document generation request: #{response.body}")
+      else
+        status_url = response.header["location"]
+        puts "Document Generation submitted successfully"
+      end
+
+      # Start polling for the status of the document generation
+      poll_status(status_url)
+    end
+
+    def poll_status(status_url, timeout: 30)
+      # Poll for the generated document
+      download_uri = nil
       loop do
-        sleep(6)
-        response = connection.get(url)
-        counter += 1
-        if response.body.include?('"cpf:status":{"completed":true,"type":"","status":200}')
-          @raw_response = response
-          return write_to_file(response.body)
-        else
-          status = JSON.parse(response.body)["cpf:status"]
-          raise Error.new(status_code: status["status"], msg: status) if status["status"] != 202
+        timeout -= 1
+        break if timeout <= 0
+
+        # Wait for 5 seconds before checking the status
+        url = URI(status_url)
+        https = Net::HTTP.new(url.host, url.port)
+        https.use_ssl = true
+        request = Net::HTTP::Get.new(url)
+        request["Content-Type"] = "application/json"
+        request["X-API-Key"] = @client_id
+        request["Authorization"] = "Bearer #{@access_token}"
+        response = https.request(request)
+
+        if response.code.to_i != 200
+          raise Error.new(status_code: response.code, msg: "Failed to check document generation status: #{response.body}")
         end
-        break if counter > 10
-      rescue => e
-        # Raise other exceptions
-        raise(e)
-      end
-    end
 
-    def write_to_file(response_body)
-      line_index = []
-      lines = response_body.split("\r\n")
-      lines.each_with_index do |line, i|
-        next if line.include?("--Boundary_") || line.match?(/^Content-(Type|Disposition):/) || line.empty? || JSON.parse(line.force_encoding("UTF-8").to_s)
-      rescue
-        line_index << i
+        response_body = JSON.parse(response.body)
+        puts "Current status: #{response_body['status']}"
+        if response_body["status"] == "done"
+          download_uri = response_body["asset"]["downloadUri"]
+          break
+        elsif response_body["status"] == "failed"
+          raise Error.new(status_code: response.code, msg: "Document generation failed: #{response.body}")
+        else
+          puts "Document generation in progress..."
+        end
+        sleep 1
       end
 
-      return true if File.open(@output, "wb") { |f| f.write lines.map.with_index { |l, i| lines.at(i) if line_index.include?(i) }.compact.join("\r\n")}
-      false
+      # If the download URI is available, proceed to download the document
+      if download_uri
+        download_output(download_uri: download_uri)
+      else
+        raise Error.new(status_code: response.code, msg: "Document generation not completed: #{response.body}")
+      end
+
     end
 
+    def download_output(download_uri:)
+      # Finally, download the generated document
+      url = URI(download_uri)
+      https = Net::HTTP.new(url.host, url.port)
+      https.use_ssl = true
+      request = Net::HTTP::Get.new(url)
+      response = https.request(request)
+      if response.code.to_i != 200
+        raise Error.new(status_code: response.code, msg: "Failed to download document: #{response.body}")
+      else
+        if File.open(@output, "wb") { |f| f.write response.body }
+          puts "Document saved successfully to #{@output}"
+          return true
+        end
+      end
+    end
   end
+
 end
